@@ -107,3 +107,58 @@ export function growthSeries(
   }
   return series
 }
+
+/** 柱状图单点拆解：每期余额拆分为「初始本金 / 投入本金 / 盈利」三段 */
+export interface GrowthPoint {
+  /** 第几期（0 表示期初，仅初始本金） */
+  period: number
+  /** X 轴标签 */
+  label: string
+  /** 初始本金（固定） */
+  pv: number
+  /** 截至该期累计投入本金（初始本金 + 已投定投） */
+  invested: number
+  /** 截至该期累计盈利（利息，可为负） */
+  interest: number
+  /** 余额 = invested + interest */
+  balance: number
+}
+
+/** 图表最大柱数，超出则等距降采样（保留首、尾点），避免频率过高时柱子过密 */
+const MAX_BARS = 60
+
+/**
+ * 生成逐期余额拆解序列，用于堆叠柱状图：
+ * 每根柱子由三段堆叠 —— 初始本金(pv) / 投入本金累计(invested-pv) / 盈利(interest)。
+ */
+export function growthBreakdown(
+  pv: number,
+  pmt: number,
+  annualRate: number,
+  years: number,
+  freqPerYear = 12,
+): GrowthPoint[] {
+  const r = annualRate / freqPerYear
+  const total = Math.max(0, Math.round(years * freqPerYear))
+  const raw: GrowthPoint[] = []
+  let bal = pv
+  for (let i = 0; i <= total; i++) {
+    const invested = pv + pmt * i
+    raw.push({
+      period: i,
+      label: i === 0 ? '期初' : `第${i}期`,
+      pv,
+      invested,
+      interest: bal - invested,
+      balance: bal,
+    })
+    if (i < total) bal = bal * (1 + r) + pmt
+  }
+  if (raw.length <= MAX_BARS) return raw
+  const step = Math.ceil(raw.length / MAX_BARS)
+  const out: GrowthPoint[] = []
+  for (let i = 0; i < raw.length; i += step) out.push(raw[i])
+  const last = raw[raw.length - 1]
+  if (out[out.length - 1] !== last) out.push(last)
+  return out
+}

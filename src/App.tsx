@@ -3,7 +3,8 @@ import {
   futureValueOfAnnuity,
   pmtForTarget,
   annualRateForTarget,
-  growthSeries,
+  growthBreakdown,
+  type GrowthPoint,
 } from './lib/finance'
 
 type Mode = 'fv' | 'target' | 'rate'
@@ -56,12 +57,12 @@ export default function App() {
   )
 
   const series = useMemo(() => {
-    if (mode === 'fv') return growthSeries(num(pv), num(pmt), r, y, freq)
+    if (mode === 'fv') return growthBreakdown(num(pv), num(pmt), r, y, freq)
     if (mode === 'target') {
       const p = (tgtRes.principal - num(pv)) / (y * freq || 1)
-      return growthSeries(num(pv), p, r, y, freq)
+      return growthBreakdown(num(pv), p, r, y, freq)
     }
-    return rateRes == null ? [] : growthSeries(num(pv), num(pmt), rateRes, y, freq)
+    return rateRes == null ? [] : growthBreakdown(num(pv), num(pmt), rateRes, y, freq)
   }, [mode, pmt, pv, r, y, freq, tgtRes, rateRes])
 
   return (
@@ -147,7 +148,7 @@ export default function App() {
                   <Stat label="最终金额" value={cny.format(num(target))} hint={formatCNYUnit(num(target))} />
                 </>
           )}
-          <Curve data={series} />
+          <BarChart data={series} />
         </section>
       </div>
 
@@ -179,32 +180,91 @@ function Stat({ label, value, accent, hint }: { label: string; value: string; ac
   )
 }
 
-function Curve({ data }: { data: number[] }) {
-  if (data.length < 2) return <div className="curve-empty">调整参数后可查看增长曲线</div>
-  const W = 680, H = 200, pad = 12
-  const max = Math.max(...data, 1)
-  const min = Math.min(...data, 0)
-  const pts = data.map((v, i) => {
-    const x = pad + (i / (data.length - 1)) * (W - pad * 2)
-    const yy = H - pad - ((v - min) / ((max - min) || 1)) * (H - pad * 2)
-    return [x, yy] as const
+/** 把数值向上取到「整 1/2/2.5/5/10 × 10^k」，便于 Y 轴刻度对齐 */
+const niceMax = (v: number): number => {
+  if (v <= 0) return 1
+  const pow = Math.pow(10, Math.floor(Math.log10(v)))
+  const nrm = v / pow
+  const step = nrm <= 1 ? 1 : nrm <= 2 ? 2 : nrm <= 2.5 ? 2.5 : nrm <= 5 ? 5 : 10
+  return step * pow
+}
+/** Y 轴刻度文案：优先中文单位，负值带负号 */
+const axisLabel = (v: number): string => {
+  const s = formatCNYUnit(Math.abs(v))
+  const sign = v < 0 ? '-' : ''
+  return s ? sign + s : sign + String(Math.round(v))
+}
+
+function BarChart({ data }: { data: GrowthPoint[] }) {
+  if (data.length < 2) return <div className="curve-empty">调整参数后可查看增长柱状图</div>
+  const W = 680, H = 250, padX = 18, padTop = 18, padBottom = 30
+  const plotH = H - padTop - padBottom
+  const maxBal = Math.max(...data.map((d) => d.balance), 0)
+  const minInt = Math.min(...data.map((d) => d.interest), 0)
+  const maxY = niceMax(maxBal)
+  const minY = minInt < 0 ? -niceMax(-minInt) : 0
+  const span = maxY - minY || 1
+  const yScale = (v: number) => padTop + ((maxY - v) / span) * plotH
+
+  const n = data.length
+  const band = (W - padX * 2) / n
+  const barW = Math.min(band * 0.64, 44)
+  const ticks = 4
+  const colorPv = '#34d399'   // 初始本金：绿
+  const colorInv = '#3b82f6'  // 投入本金：蓝
+  const colorInt = '#a855f7'  // 盈利金额：紫
+  const labelStep = Math.ceil(n / 12)
+
+  const seg = (x: number, a: number, b: number, fill: string, title: string) => {
+    if (Math.abs(b - a) < 1e-6) return null
+    const yTop = yScale(Math.max(a, b))
+    const yBot = yScale(Math.min(a, b))
+    return (
+      <rect key={title} x={x} y={yTop} width={barW} height={Math.max(0, yBot - yTop)} fill={fill}>
+        <title>{title}</title>
+      </rect>
+    )
+  }
+
+  const bars = data.map((d, i) => {
+    const cx = padX + band * i + band / 2
+    const x = cx - barW / 2
+    return (
+      <g key={i}>
+        {seg(x, 0, d.pv, colorPv, `${d.label}｜初始本金 ${cny.format(d.pv)}`)}
+        {seg(x, d.pv, d.invested, colorInv, `${d.label}｜投入本金 ${cny.format(d.invested - d.pv)}`)}
+        {seg(x, d.invested, d.balance, colorInt, `${d.label}｜盈利 ${cny.format(d.interest)}`)}
+      </g>
+    )
   })
-  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')
-  const area = `${line} L${pts[pts.length - 1][0].toFixed(1)},${H - pad} L${pts[0][0].toFixed(1)},${H - pad} Z`
+
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="curve" preserveAspectRatio="none">
-      <defs>
-        <linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="rgba(34,211,238,0.35)" />
-          <stop offset="100%" stopColor="rgba(34,211,238,0)" />
-        </linearGradient>
-        <linearGradient id="stroke" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0%" stopColor="#22d3ee" />
-          <stop offset="100%" stopColor="#a855f7" />
-        </linearGradient>
-      </defs>
-      <path d={area} fill="url(#fill)" />
-      <path d={line} fill="none" stroke="url(#stroke)" strokeWidth="2.5" style={{ filter: 'drop-shadow(0 0 6px rgba(34,211,238,.6))' }} />
-    </svg>
+    <div className="chart">
+      <div className="chart-legend">
+        <span className="legend-item"><i className="sw" style={{ background: colorPv }} />初始本金</span>
+        <span className="legend-item"><i className="sw" style={{ background: colorInv }} />投入本金</span>
+        <span className="legend-item"><i className="sw" style={{ background: colorInt }} />盈利金额</span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="bar-chart" preserveAspectRatio="none">
+        {Array.from({ length: ticks + 1 }, (_, i) => {
+          const v = minY + (span * i) / ticks
+          const yy = yScale(v)
+          return (
+            <g key={i}>
+              <line x1={padX} y1={yy} x2={W - padX} y2={yy} className="grid-line" />
+              <text x={padX - 5} y={yy + 3} className="axis-text" textAnchor="end">{axisLabel(v)}</text>
+            </g>
+          )
+        })}
+        {bars}
+        {data.map((d, i) =>
+          i % labelStep === 0 || i === n - 1 ? (
+            <text key={i} x={padX + band * i + band / 2} y={H - padBottom + 15} className="axis-text" textAnchor="middle">
+              {d.label}
+            </text>
+          ) : null,
+        )}
+      </svg>
+    </div>
   )
 }
