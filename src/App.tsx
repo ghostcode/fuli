@@ -148,9 +148,12 @@ export default function App() {
                   <Stat label="最终金额" value={cny.format(num(target))} hint={formatCNYUnit(num(target))} />
                 </>
           )}
-          <BarChart data={series} />
         </section>
       </div>
+
+      <section className="card chart-row">
+        <BarChart data={series} />
+      </section>
 
       <footer className="foot">期末定投模型 · FV = PV·(1+r)ⁿ + PMT·[(1+r)ⁿ−1]/r · 计算年化采用二分法数值求解</footer>
     </div>
@@ -197,7 +200,7 @@ const axisLabel = (v: number): string => {
 
 function BarChart({ data }: { data: GrowthPoint[] }) {
   if (data.length < 2) return <div className="curve-empty">调整参数后可查看增长柱状图</div>
-  const W = 680, H = 250, padX = 18, padTop = 18, padBottom = 30
+  const W = 680, H = 250, padL = 60, padR = 16, padTop = 18, padBottom = 30
   const plotH = H - padTop - padBottom
   const maxBal = Math.max(...data.map((d) => d.balance), 0)
   const minInt = Math.min(...data.map((d) => d.interest), 0)
@@ -207,10 +210,10 @@ function BarChart({ data }: { data: GrowthPoint[] }) {
   const yScale = (v: number) => padTop + ((maxY - v) / span) * plotH
 
   const n = data.length
-  const band = (W - padX * 2) / n
+  const band = (W - padL - padR) / n
   const barW = Math.min(band * 0.64, 44)
   const ticks = 4
-  const colorPv = '#34d399'   // 初始本金：绿
+  const colorPv = '#ef4444'   // 初始本金：红
   const colorInv = '#3b82f6'  // 投入本金：蓝
   const colorInt = '#a855f7'  // 盈利金额：紫
   const labelStep = Math.ceil(n / 12)
@@ -227,7 +230,7 @@ function BarChart({ data }: { data: GrowthPoint[] }) {
   }
 
   const bars = data.map((d, i) => {
-    const cx = padX + band * i + band / 2
+    const cx = padL + band * i + band / 2
     const x = cx - barW / 2
     return (
       <g key={i}>
@@ -251,15 +254,15 @@ function BarChart({ data }: { data: GrowthPoint[] }) {
           const yy = yScale(v)
           return (
             <g key={i}>
-              <line x1={padX} y1={yy} x2={W - padX} y2={yy} className="grid-line" />
-              <text x={padX - 5} y={yy + 3} className="axis-text" textAnchor="end">{axisLabel(v)}</text>
+              <line x1={padL} y1={yy} x2={W - padR} y2={yy} className="grid-line" />
+              <text x={padL - 6} y={yy + 3} className="axis-text" textAnchor="end">{axisLabel(v)}</text>
             </g>
           )
         })}
         {bars}
         {data.map((d, i) =>
           i % labelStep === 0 || i === n - 1 ? (
-            <text key={i} x={padX + band * i + band / 2} y={H - padBottom + 15} className="axis-text" textAnchor="middle">
+            <text key={i} x={padL + band * i + band / 2} y={H - padBottom + 15} className="axis-text" textAnchor="middle">
               {d.label}
             </text>
           ) : null,
